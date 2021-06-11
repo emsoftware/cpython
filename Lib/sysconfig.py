@@ -5,6 +5,11 @@ import sys
 import os
 from os.path import pardir, realpath
 
+# Keys for get_config_var() that are never converted to Python integers.
+_ALWAYS_STR = {
+    'MACOSX_DEPLOYMENT_TARGET',
+}
+
 _INSTALL_SCHEMES = {
     'posix_prefix': {
         'stdlib': '{base}/lib/python{py_version_short}',
@@ -228,6 +233,8 @@ def _parse_makefile(filename, vars=None):
                 notdone[n] = v
             else:
                 try:
+                    if n in _ALWAYS_STR:
+                        raise ValueError
                     v = int(v)
                 except ValueError:
                     # insert literal `$'
@@ -259,7 +266,10 @@ def _parse_makefile(filename, vars=None):
                     if "$" in after:
                         notdone[name] = value
                     else:
-                        try: value = int(value)
+                        try:
+                            if n in _ALWAYS_STR:
+                                raise ValueError
+                            value = int(value)
                         except ValueError:
                             done[name] = value.strip()
                         else:
@@ -397,8 +407,12 @@ def parse_config_h(fp, vars=None):
         m = define_rx.match(line)
         if m:
             n, v = m.group(1, 2)
-            try: v = int(v)
-            except ValueError: pass
+            try:
+                if n in _ALWAYS_STR:
+                    raise ValueError
+                v = int(v)
+            except ValueError:
+                pass
             vars[n] = v
         else:
             m = undef_rx.match(line)

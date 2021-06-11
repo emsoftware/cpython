@@ -119,7 +119,8 @@ WORKDIR = "/tmp/_py"
 DEPSRC = os.path.join(WORKDIR, 'third-party')
 DEPSRC = os.path.expanduser('~/Universal/other-sources')
 
-universal_opts_map = { '32-bit': ('i386', 'ppc',),
+universal_opts_map = { 'universal2': ('arm64', 'x86_64'),
+                       '32-bit': ('i386', 'ppc',),
                        '64-bit': ('x86_64', 'ppc64',),
                        'intel':  ('i386', 'x86_64'),
                        'intel-32':  ('i386',),
@@ -127,6 +128,7 @@ universal_opts_map = { '32-bit': ('i386', 'ppc',),
                        '3-way':  ('ppc', 'i386', 'x86_64'),
                        'all':    ('i386', 'ppc', 'x86_64', 'ppc64',) }
 default_target_map = {
+        'universal2': '10.9',
         '64-bit': '10.5',
         '3-way': '10.5',
         'intel': '10.5',
@@ -153,6 +155,9 @@ DEPTARGET = '10.5'
 
 def getDeptargetTuple():
     return tuple([int(n) for n in DEPTARGET.split('.')[0:2]])
+
+def getBuildTuple():
+    return tuple([int(n) for n in platform.mac_ver()[0].split('.')[0:2]])
 
 def getTargetCompilers():
     target_cc_map = {
@@ -541,8 +546,8 @@ def checkEnvironment():
     Check that we're running on a supported system.
     """
 
-    if sys.version_info[0:2] < (2, 5):
-        fatal("This script must be run with Python 2.5 (or later)")
+    if sys.version_info[0:2] < (2, 7):
+        fatal("This script must be run with Python 2.7 (or later)")
 
     if platform.system() != 'Darwin':
         fatal("This script should be run on a macOS 10.5 (or later) system")
@@ -806,6 +811,7 @@ def build_universal_openssl(basedir, archList):
         arch_opts = {
             "i386": ["darwin-i386-cc"],
             "x86_64": ["darwin64-x86_64-cc", "enable-ec_nistp_64_gcc_128"],
+            "arm64": ["darwin64-arm64-cc"],
             "ppc": ["darwin-ppc-cc"],
             "ppc64": ["darwin64-ppc-cc"],
         }
@@ -1526,8 +1532,40 @@ def buildDMG():
     if os.path.exists(outdir):
         shutil.rmtree(outdir)
 
+    # We used to use the deployment target as the last characters of the
+    # installer file name. With the introduction of weaklinked installer
+    # variants, we may have two variants with the same file name, i.e.
+    # both ending in '10.9'.  To avoid this, we now use the major/minor
+    # version numbers of the macOS version we are building on.
+    # Also, as of macOS 11, operating system version numbering has
+    # changed from three components to two, i.e.
+    #   10.14.1, 10.14.2, ...
+    #   10.15.1, 10.15.2, ...
+    #   11.1, 11.2, ...
+    #   12.1, 12.2, ...
+    # (A further twist is that, when running on macOS 11, binaries built
+    # on older systems may be shown an operating system version of 10.16
+    # instead of 11.  We should not run into that situation here.)
+    # Also we should use "macos" instead of "macosx" going forward.
+    #
+    # To maintain compability for legacy variants, the file name for
+    # builds on macOS 10.15 and earlier remains:
+    #   python-3.x.y-macosx10.z.{dmg->pkg}
+    #   e.g. python-3.9.4-macosx10.9.{dmg->pkg}
+    # and for builds on macOS 11+:
+    #   python-3.x.y-macosz.{dmg->pkg}
+    #   e.g. python-3.9.4-macos11.{dmg->pkg}
+
+    build_tuple = getBuildTuple()
+    if build_tuple[0] < 11:
+        os_name = 'macosx'
+        build_system_version = '%s.%s' % build_tuple
+    else:
+        os_name = 'macos'
+        build_system_version = str(build_tuple[0])
+
     imagepath = os.path.join(outdir,
-                    'python-%s-macosx%s'%(getFullVersion(),DEPTARGET))
+                    'python-%s-%s%s'%(getFullVersion(),os_name,build_system_version))
     if INCLUDE_TIMESTAMP:
         imagepath = imagepath + '-%04d-%02d-%02d'%(time.localtime()[:3])
     imagepath = imagepath + '.dmg'
